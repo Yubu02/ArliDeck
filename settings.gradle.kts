@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FloatDeck"
+rootProject.name = "ArliDeck"
 include(":app")
