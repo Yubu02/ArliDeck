@@ -18,6 +18,34 @@ enum class PortraitEffect(
 }
 
 /**
+ * Optional layout settings read from template.json.
+ *
+ * mode = "cards" preserves the original FloatDeck card layout.
+ * mode = "fullscreen" draws portraits as large layers and crossfades them by phone tilt.
+ */
+data class TemplateLayoutConfig(
+    val mode: String = "cards",
+    val centerX: Float = 0.5f,
+    val centerY: Float = 0.5f,
+    val lockedCenterX: Float = 0.5f,
+    val lockedCenterY: Float = 0.5f,
+    val portraitHeight: Float = 1.16f,
+    val lockedPortraitHeight: Float = 1.16f,
+    val rotation: Float = 0f,
+    val lockedRotation: Float = 0f,
+    val crossfadeRange: Float = 0.22f,
+    val tiltAxis: String = "roll",
+    val invertTilt: Boolean = false,
+    val backgroundParallaxX: Float = 0.08f,
+    val backgroundParallaxY: Float = 0.05f,
+    val portraitParallaxX: Float = 0.13f,
+    val portraitParallaxY: Float = 0.08f,
+) {
+    val isFullscreen: Boolean
+        get() = mode.equals("fullscreen", ignoreCase = true)
+}
+
+/**
  * 肖像卡片位置参数（所有坐标为屏幕比例 0~1）。
  *
  * @param xRatio 水平位置比例
@@ -52,4 +80,5 @@ data class TemplateConfig(
     val portraits: List<PortraitConfig>,
     val isRemote: Boolean = false,
     val effect: PortraitEffect = PortraitEffect.NONE,
+    val layout: TemplateLayoutConfig = TemplateLayoutConfig(),
 )
