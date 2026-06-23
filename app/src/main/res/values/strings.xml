@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">FloatDeck</string>
-    <string name="wallpaper_description">Parallax wallpaper with floating character portraits</string>
+    <string name="app_name">ArliDeck</string>
+    <string name="wallpaper_description">Fullscreen parallax wallpaper for Arli templates</string>
     <string name="set_as_live_wallpaper">Set as Live Wallpaper</string>
     <string name="template_title">Template</string>
     <string name="imported_templates">Imported Templates</string>
@@ -29,7 +29,7 @@
     <string name="error_unsupported_protocol">Only HTTP/HTTPS protocols are supported</string>
     <string name="error_download_empty">Downloaded file is empty</string>
     <string name="error_download_failed">Download failed, please check network connection</string>
-    <string name="error_template_exists">Template \"%s\" already exists, overwrite?</string>
+    <string name="error_template_exists">Template &quot;%s&quot; already exists, overwrite?</string>
     <string name="error_invalid_zip_path">ZIP contains invalid path: %s</string>
     <string name="error_zip_structure">ZIP structure error: files must be in a subfolder (e.g., my_template/template.json)</string>
     <string name="error_unsupported_file_type">Unsupported file type: %s (only png/jpg/webp/json supported)</string>
