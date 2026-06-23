@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.opengl.GLES30
 import android.opengl.Matrix
 import app.floatdeck.data.TemplateConfig
+import app.floatdeck.data.TemplateLayoutConfig
 import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.sin
@@ -14,9 +15,7 @@ import kotlin.math.sin
 // 数据模型
 // ============================================================================
 
-/**
- * 单张立绘卡片的运行时状态。
- */
+/** 单张立绘卡片的运行时状态。 */
 data class PortraitState(
     val id: String,
     val label: String,
@@ -34,22 +33,17 @@ data class PortraitState(
 // 锁屏布局配置
 // ============================================================================
 
-/**
- * 锁屏时的行排列定义。
- * @property rows 每行的立绘数量列表，如 listOf(5, 5, 2)
- */
+/** 锁屏时的行排列定义。 */
 data class LockLayout(
     val rows: List<Int>,
 )
 
-/** 可用的横屏锁屏布局 */
 private val LANDSCAPE_LAYOUTS =
     listOf(
         LockLayout(listOf(4, 4, 4)),
         LockLayout(listOf(5, 2, 5)),
     )
 
-/** 可用的竖屏锁屏布局 */
 private val PORTRAIT_LAYOUTS =
     listOf(
         LockLayout(listOf(4, 4, 4)),
@@ -60,72 +54,38 @@ private val PORTRAIT_LAYOUTS =
 // 主渲染器
 // ============================================================================
 
-/**
- * FloatDeck 动态壁纸的 OpenGL ES 3.0 渲染器。
- */
+/** FloatDeck 动态壁纸的 OpenGL ES 3.0 渲染器。 */
 class FloatDeckRenderer(
     private val context: Context,
 ) {
-    // ------------------------------------------------------------------
-    // OpenGL 着色器程序
-    // ------------------------------------------------------------------
     private var portraitProgram = 0
     private var backgroundProgram = 0
     private var quadVertexBuffer: FloatBuffer? = null
 
-    // ------------------------------------------------------------------
-    // 背景壁纸状态
-    // ------------------------------------------------------------------
     private var wallpaperTextureId = 0
     private var wallpaperPixelWidth = 1
     private var wallpaperPixelHeight = 1
 
-    // ------------------------------------------------------------------
-    // 立绘卡片状态
-    // ------------------------------------------------------------------
     private val portraitStates = mutableListOf<PortraitState>()
+    private var templateLayout = TemplateLayoutConfig()
 
-    // ------------------------------------------------------------------
-    // 传感器数值
-    // ------------------------------------------------------------------
     var smoothedRollX = 0f
     var smoothedPitchY = 0f
 
-    // ------------------------------------------------------------------
-    // 锁屏/解锁过渡
-    // ------------------------------------------------------------------
     var transitionProgress = 0f
     var targetTransition = 0f
     private var isFirstFrame = true
 
-    // ------------------------------------------------------------------
-    // 晃动动画
-    // ------------------------------------------------------------------
     private var swayTimeSeconds = 0f
 
-    // ------------------------------------------------------------------
-    // 锁屏布局
-    // ------------------------------------------------------------------
-
-    /** 当前选中的锁屏布局（启动时随机选择） */
     private var currentLockLayout: LockLayout = PORTRAIT_LAYOUTS[0]
-
-    /** 是否已选择布局 */
     private var layoutSelected = false
-
-    /** 横竖屏切换时需要重新选择布局 */
     private var needsTemplateReload = false
 
-    // ------------------------------------------------------------------
-    // 屏幕尺寸
-    // ------------------------------------------------------------------
     private var screenWidthPixels = 1f
     private var screenHeightPixels = 1f
     private val orthographicMatrix = FloatArray(16)
 
-    // ------------------------------------------------------------------
-    // 着色器 uniform 位置 — 立绘
-    // ------------------------------------------------------------------
     private var uniformPortraitMvp = 0
     private var uniformPortraitOffset = 0
     private var uniformPortraitRotation = 0
@@ -136,37 +96,25 @@ class FloatDeckRenderer(
     private var uniformPortraitShadowColor = 0
     private var uniformPortraitShadowOffset = 0
     private var uniformPortraitCornerRadius = 0
-
-    // 立绘特效 uniform
     private var uniformPortraitEffect = 0
     private var uniformPortraitTime = 0
     private var uniformPortraitViewAngle = 0
 
-    // ------------------------------------------------------------------
-    // 着色器 uniform 位置 — 背景
-    // ------------------------------------------------------------------
     private var uniformBackgroundMvp = 0
     private var uniformBackgroundParallax = 0
     private var uniformBackgroundTexture = 0
     private var uniformBackgroundAlpha = 0
 
-    // ------------------------------------------------------------------
-    // 布局常量
-    // ------------------------------------------------------------------
-    private val portraitHeightScreenFraction = 0.24f
-    private val portraitAspectRatio = 0.5f
+    private val cardPortraitHeightScreenFraction = 0.24f
+    private val cardPortraitAspectRatio = 0.5f
 
     /** 当前立绘特效。由壁纸服务从 SharedPreferences 读取后设置。 */
-    var portraitEffect: Int = 0 // 0=无, 1=碎碎冰, 2=炫彩
+    var portraitEffect: Int = 0
 
-    // ------------------------------------------------------------------
-    // 触控
-    // ------------------------------------------------------------------
     var draggedPortraitIndex = -1
     var previousTouchX = 0f
     var previousTouchY = 0f
 
-    /** 解锁动画延迟（秒） */
     private val unlockDelaySeconds = 0.1f
     private var unlockDelayTimer = 0f
     private var isWaitingForUnlock = false
@@ -186,10 +134,6 @@ class FloatDeckRenderer(
             Color.argb(255, 60, 60, 80),
             Color.argb(255, 45, 50, 100),
         )
-
-    // ==================================================================
-    // 生命周期
-    // ==================================================================
 
     fun onSurfaceCreated(
         gl: javax.microedition.khronos.opengles.GL10?,
@@ -212,7 +156,6 @@ class FloatDeckRenderer(
         uniformPortraitShadowColor = GLES30.glGetUniformLocation(portraitProgram, "uShadowColor")
         uniformPortraitShadowOffset = GLES30.glGetUniformLocation(portraitProgram, "uShadowOffset")
         uniformPortraitCornerRadius = GLES30.glGetUniformLocation(portraitProgram, "uRadius")
-
         uniformPortraitEffect = GLES30.glGetUniformLocation(portraitProgram, "uEffect")
         uniformPortraitTime = GLES30.glGetUniformLocation(portraitProgram, "uTime")
         uniformPortraitViewAngle = GLES30.glGetUniformLocation(portraitProgram, "uViewAngle")
@@ -234,8 +177,6 @@ class FloatDeckRenderer(
         screenHeightPixels = height.toFloat()
         GLES30.glViewport(0, 0, width, height)
         Matrix.orthoM(orthographicMatrix, 0, 0f, screenWidthPixels, screenHeightPixels, 0f, -1f, 1f)
-
-        // 重置传感器校准和布局
         needsTemplateReload = true
     }
 
@@ -246,14 +187,11 @@ class FloatDeckRenderer(
         layoutSelected = true
     }
 
-    // ==================================================================
-    // 模板加载
-    // ==================================================================
-
     fun loadTemplate(template: TemplateConfig) {
         portraitStates.forEach { TextureLoader.deleteTexture(it.textureId) }
         portraitStates.clear()
         if (wallpaperTextureId != 0) TextureLoader.deleteTexture(wallpaperTextureId)
+        templateLayout = template.layout
 
         val bgResult =
             if (template.isRemote && template.wallpaperAsset != null) {
@@ -331,31 +269,18 @@ class FloatDeckRenderer(
             }
             val width = opts.outWidth
             val height = opts.outHeight
-            android.util.Log.d("FloatDeck", "Loading texture: $assetPath ${width}x${height}")
-            if (width <= 0 || height <= 0) {
-                android.util.Log.e("FloatDeck", "Invalid dimensions: $assetPath")
-                return null
-            }
+            if (width <= 0 || height <= 0) return null
             val bitmap =
                 context.assets.open(assetPath).use {
                     BitmapFactory.decodeStream(it)
-                } ?: run {
-                    android.util.Log.e("FloatDeck", "decodeStream returned null: $assetPath")
-                    return null
-                }
+                } ?: return null
             val texId = TextureLoader.loadBitmap(bitmap)
-            android.util.Log.d("FloatDeck", "Loaded texture: $assetPath -> texId=$texId")
             bitmap.recycle()
             Triple(texId, width, height)
-        } catch (e: Exception) {
-            android.util.Log.e("FloatDeck", "Failed to load texture: $assetPath", e)
+        } catch (_: Exception) {
             null
         }
     }
-
-    // ==================================================================
-    // 每帧渲染
-    // ==================================================================
 
     fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
@@ -365,9 +290,8 @@ class FloatDeckRenderer(
             isFirstFrame = false
         }
 
-        // 解锁延迟动画
         if (isWaitingForUnlock) {
-            unlockDelayTimer += 0.016f
+            unlockDelayTimer += FRAME_TIME_SECONDS
             if (unlockDelayTimer >= unlockDelaySeconds) {
                 isWaitingForUnlock = false
                 targetTransition = 0f
@@ -377,13 +301,11 @@ class FloatDeckRenderer(
         val diff = targetTransition - transitionProgress
         transitionProgress += if (abs(diff) < 0.01f) diff else diff * 0.08f
 
-        swayTimeSeconds += 0.016f
+        swayTimeSeconds += FRAME_TIME_SECONDS
         updateInertia()
 
-        // 横竖屏切换时重新加载模板
         if (needsTemplateReload) {
             needsTemplateReload = false
-            // 重新选择布局
             selectRandomLayout()
         }
 
@@ -409,18 +331,11 @@ class FloatDeckRenderer(
         }
     }
 
-    // ==================================================================
-    // 背景渲染
-    // ==================================================================
-
     private fun drawBackgroundLayers() {
-        // 视差方向：前后倾平板 → 水平偏移，左右倾平板 → 垂直偏移
-        // 钳制传感器值，防止大角度倾斜导致过大偏移
-        val maxShift = 0.5f // 传感器值最大有效范围
-        val clampedPitch = smoothedPitchY.coerceIn(-maxShift, maxShift)
-        val clampedRoll = smoothedRollX.coerceIn(-maxShift, maxShift)
-        val parallaxX = clampedPitch * screenWidthPixels * 0.1f
-        val parallaxY = clampedRoll * screenHeightPixels * 0.075f
+        val clampedRoll = smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT)
+        val clampedPitch = smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT)
+        val parallaxX = clampedRoll * screenWidthPixels * templateLayout.backgroundParallaxX
+        val parallaxY = clampedPitch * screenHeightPixels * templateLayout.backgroundParallaxY
         drawSingleBackgroundLayer(parallaxX, parallaxY, 1.0f)
     }
 
@@ -433,13 +348,7 @@ class FloatDeckRenderer(
         val buffer = quadVertexBuffer ?: return
         bindQuadAttributes(buffer)
 
-        // 视差导致的最大偏移量
-        val maxParallaxOffset =
-            maxOf(
-                abs(smoothedPitchY) * screenWidthPixels * 0.1f,
-                abs(smoothedRollX) * screenHeightPixels * 0.075f,
-            )
-        // 额外 overscan 比例，确保视差偏移后不出现黑边
+        val maxParallaxOffset = maxOf(abs(parallaxX), abs(parallaxY))
         val overscan = 1f + (maxParallaxOffset / minOf(screenWidthPixels, screenHeightPixels)) * 2f
 
         val screenAspect = screenWidthPixels / screenHeightPixels
@@ -453,40 +362,87 @@ class FloatDeckRenderer(
         val drawWidth = wallpaperPixelWidth.toFloat() * scaleFactor
         val drawHeight = wallpaperPixelHeight.toFloat() * scaleFactor
 
-        val mvp = FloatArray(16)
-        val model = FloatArray(16)
-        Matrix.setIdentityM(model, 0)
-        Matrix.translateM(
-            model,
-            0,
-            screenWidthPixels / 2f + parallaxX,
-            screenHeightPixels / 2f + parallaxY,
-            0f,
-        )
-        Matrix.scaleM(model, 0, drawWidth / 2f, drawHeight / 2f, 1f)
-        Matrix.multiplyMM(mvp, 0, orthographicMatrix, 0, model, 0)
+        val mvp =
+            buildModelMatrix(
+                centerX = screenWidthPixels / 2f + parallaxX,
+                centerY = screenHeightPixels / 2f + parallaxY,
+                width = drawWidth,
+                height = drawHeight,
+                rotation = 0f,
+            )
 
         GLES30.glUniformMatrix4fv(uniformBackgroundMvp, 1, false, mvp, 0)
         GLES30.glUniform2f(uniformBackgroundParallax, 0f, 0f)
-        if (uniformBackgroundAlpha != 0) {
-            GLES30.glUniform1f(uniformBackgroundAlpha, alpha)
-        }
-
+        GLES30.glUniform1f(uniformBackgroundAlpha, alpha)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, wallpaperTextureId)
         GLES30.glUniform1i(uniformBackgroundTexture, 0)
-
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         unbindQuadAttributes()
     }
 
-    // ==================================================================
-    // 立绘渲染
-    // ==================================================================
-
     private fun drawPortraits() {
+        if (templateLayout.isFullscreen) {
+            drawFullscreenPortraits()
+        } else {
+            drawCardPortraits()
+        }
+    }
+
+    private fun drawFullscreenPortraits() {
+        if (portraitStates.isEmpty()) return
+
+        val centerRatioX = lerp(templateLayout.centerX, templateLayout.lockedCenterX, transitionProgress)
+        val centerRatioY = lerp(templateLayout.centerY, templateLayout.lockedCenterY, transitionProgress)
+        val heightRatio = lerp(templateLayout.portraitHeight, templateLayout.lockedPortraitHeight, transitionProgress)
+        val rotation = lerp(templateLayout.rotation, templateLayout.lockedRotation, transitionProgress)
+
+        val parallaxX = smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) *
+            screenWidthPixels * templateLayout.portraitParallaxX
+        val parallaxY = smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) *
+            screenHeightPixels * templateLayout.portraitParallaxY
+        val centerX = centerRatioX * screenWidthPixels + parallaxX
+        val centerY = centerRatioY * screenHeightPixels + parallaxY
+        val height = screenHeightPixels * heightRatio
+
+        val alphaPair = fullscreenAlphaPair()
+        portraitStates.forEachIndexed { index, state ->
+            val alpha =
+                when (index) {
+                    0 -> alphaPair.first
+                    1 -> alphaPair.second
+                    else -> 1f
+                }
+            drawPortraitQuad(
+                state = state,
+                centerX = centerX + state.offsetX,
+                centerY = centerY + state.offsetY,
+                height = height,
+                rotation = rotation,
+                alpha = alpha,
+                rounded = false,
+                shadow = false,
+            )
+        }
+    }
+
+    private fun fullscreenAlphaPair(): Pair<Float, Float> {
+        if (portraitStates.size < 2) return Pair(1f, 0f)
+
+        val axisValue =
+            if (templateLayout.tiltAxis.equals("pitch", ignoreCase = true)) {
+                smoothedPitchY
+            } else {
+                smoothedRollX
+            }
+        val tilt = if (templateLayout.invertTilt) -axisValue else axisValue
+        val range = templateLayout.crossfadeRange.coerceAtLeast(0.01f)
+        val rightAlpha = ((tilt + range) / (range * 2f)).coerceIn(0f, 1f)
+        return Pair(1f - rightAlpha, rightAlpha)
+    }
+
+    private fun drawCardPortraits() {
         GLES30.glUseProgram(portraitProgram)
-        val buffer = quadVertexBuffer ?: return
         val sortedByZ = portraitStates.sortedBy { it.drawOrder }
         val totalCount = portraitStates.size
         val leftSideCount = (totalCount + 1) / 2
@@ -497,97 +453,101 @@ class FloatDeckRenderer(
             val sideIndex = if (isOnLeftSide) globalIndex else globalIndex - leftSideCount
             val sideCount = if (isOnLeftSide) leftSideCount else totalCount - leftSideCount
 
-            val transitionT = transitionProgress
-
-            // ---- 位置计算 ----
-
-            // 锁屏位置（使用当前布局）
             val (lockedCenterX, lockedCenterY) = calculateLockedPosition(globalIndex, totalCount)
             val lockedScale = 0.85f
             val lockedRotation = (globalIndex - totalCount / 2) * 2.5f
 
-            // 解锁位置（两侧边缘）
             val unlockedEdgeX = if (isOnLeftSide) 0.05f else 0.95f
             val unlockedEdgeY = calculateUnlockedY(sideIndex, sideCount)
             val unlockedScale = 0.64f
             val unlockedRotation =
                 if (isOnLeftSide) -7.2f + sideIndex * 1.8f else 7.2f - sideIndex * 1.8f
 
-            // ---- 插值 ----
+            var drawX = lerp(unlockedEdgeX, lockedCenterX, transitionProgress) * screenWidthPixels
+            var drawY = lerp(unlockedEdgeY, lockedCenterY, transitionProgress) * screenHeightPixels
+            val drawScale = lerp(unlockedScale, lockedScale, transitionProgress)
+            val drawRotation = lerp(unlockedRotation, lockedRotation, transitionProgress)
 
-            var drawX = lerp(unlockedEdgeX, lockedCenterX, transitionT) * screenWidthPixels
-            var drawY = lerp(unlockedEdgeY, lockedCenterY, transitionT) * screenHeightPixels
-            val drawScale = lerp(unlockedScale, lockedScale, transitionT)
-            val drawRotation = lerp(unlockedRotation, lockedRotation, transitionT)
-
-            // ---- 陀螺仪视差（始终生效）----
-            // 轻微的视差偏移，立绘也有但比壁纸弱
-            val portraitParallaxX = smoothedPitchY.coerceIn(-0.5f, 0.5f) * screenWidthPixels * 0.25f
-            val portraitParallaxY = smoothedRollX.coerceIn(-0.5f, 0.5f) * screenHeightPixels * 0.2f
-            drawX += portraitParallaxX
-            drawY += portraitParallaxY
-
-            // ---- 晃动动画（始终生效）----
-            val sway = calculateSway(globalIndex)
-            drawX += sway[0]
-            drawY += sway[1]
-
-            // 用户拖拽偏移
+            drawX += smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) * screenWidthPixels * 0.25f
+            drawY += smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) * screenHeightPixels * 0.2f
+            drawX += calculateSway(globalIndex)[0]
+            drawY += calculateSway(globalIndex)[1]
             drawX += state.offsetX
             drawY += state.offsetY
 
-            // ---- 绘制 ----
-
-            val portraitHeightPixels = screenHeightPixels * portraitHeightScreenFraction * drawScale
-            val portraitWidthPixels = portraitHeightPixels * portraitAspectRatio
-
-            val modelMatrix = FloatArray(16)
-            Matrix.setIdentityM(modelMatrix, 0)
-            Matrix.translateM(modelMatrix, 0, drawX, drawY, 0f)
-            Matrix.rotateM(modelMatrix, 0, drawRotation, 0f, 0f, 1f)
-            Matrix.scaleM(modelMatrix, 0, portraitWidthPixels / 2f, portraitHeightPixels / 2f, 1f)
-
-            val mvpMatrix = FloatArray(16)
-            Matrix.multiplyMM(mvpMatrix, 0, orthographicMatrix, 0, modelMatrix, 0)
-
-            bindQuadAttributes(buffer)
-
-            GLES30.glUniformMatrix4fv(uniformPortraitMvp, 1, false, mvpMatrix, 0)
-            GLES30.glUniform2f(uniformPortraitOffset, 0f, 0f)
-            GLES30.glUniform1f(uniformPortraitRotation, 0f)
-            GLES30.glUniform2f(uniformPortraitScale, 1f, 1f)
-            GLES30.glUniform2f(uniformPortraitParallax, 0f, 0f)
-            GLES30.glUniform1f(uniformPortraitAlpha, 1f)
-            GLES30.glUniform4f(uniformPortraitShadowColor, 0f, 0f, 0f, 0.15f)
-            GLES30.glUniform2f(uniformPortraitShadowOffset, 0.01f, -0.01f)
-            GLES30.glUniform1f(uniformPortraitCornerRadius, 0.15f)
-
-            // 立绘特效
-            GLES30.glUniform1i(uniformPortraitEffect, portraitEffect)
-            GLES30.glUniform1f(uniformPortraitTime, swayTimeSeconds)
-            GLES30.glUniform2f(
-                uniformPortraitViewAngle,
-                smoothedPitchY.coerceIn(-0.5f, 0.5f),
-                smoothedRollX.coerceIn(-0.5f, 0.5f),
+            val portraitHeightPixels = screenHeightPixels * cardPortraitHeightScreenFraction * drawScale
+            drawPortraitQuad(
+                state = state,
+                centerX = drawX,
+                centerY = drawY,
+                height = portraitHeightPixels,
+                rotation = drawRotation,
+                alpha = 1f,
+                rounded = true,
+                shadow = true,
+                forcedAspectRatio = cardPortraitAspectRatio,
             )
-
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, state.textureId)
-            GLES30.glUniform1i(uniformPortraitTexture, 0)
-
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-            unbindQuadAttributes()
         }
     }
 
-    // ==================================================================
-    // 布局计算
-    // ==================================================================
+    private fun drawPortraitQuad(
+        state: PortraitState,
+        centerX: Float,
+        centerY: Float,
+        height: Float,
+        rotation: Float,
+        alpha: Float,
+        rounded: Boolean,
+        shadow: Boolean,
+        forcedAspectRatio: Float? = null,
+    ) {
+        GLES30.glUseProgram(portraitProgram)
+        val buffer = quadVertexBuffer ?: return
+        val aspectRatio = forcedAspectRatio ?: state.safeAspectRatio()
+        val width = height * aspectRatio
+        val mvp = buildModelMatrix(centerX, centerY, width, height, rotation)
 
-    /**
-     * 根据当前锁屏布局计算立绘位置。
-     * 布局随机选择，取决于横竖屏。
-     */
+        bindQuadAttributes(buffer)
+        GLES30.glUniformMatrix4fv(uniformPortraitMvp, 1, false, mvp, 0)
+        GLES30.glUniform2f(uniformPortraitOffset, 0f, 0f)
+        GLES30.glUniform1f(uniformPortraitRotation, 0f)
+        GLES30.glUniform2f(uniformPortraitScale, 1f, 1f)
+        GLES30.glUniform2f(uniformPortraitParallax, 0f, 0f)
+        GLES30.glUniform1f(uniformPortraitAlpha, alpha.coerceIn(0f, 1f))
+        GLES30.glUniform4f(uniformPortraitShadowColor, 0f, 0f, 0f, if (shadow) 0.15f else 0f)
+        GLES30.glUniform2f(uniformPortraitShadowOffset, 0.01f, -0.01f)
+        GLES30.glUniform1f(uniformPortraitCornerRadius, if (rounded) 0.15f else 0f)
+        GLES30.glUniform1i(uniformPortraitEffect, portraitEffect)
+        GLES30.glUniform1f(uniformPortraitTime, swayTimeSeconds)
+        GLES30.glUniform2f(
+            uniformPortraitViewAngle,
+            smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT),
+            smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT),
+        )
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, state.textureId)
+        GLES30.glUniform1i(uniformPortraitTexture, 0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        unbindQuadAttributes()
+    }
+
+    private fun buildModelMatrix(
+        centerX: Float,
+        centerY: Float,
+        width: Float,
+        height: Float,
+        rotation: Float,
+    ): FloatArray {
+        val model = FloatArray(16)
+        val mvp = FloatArray(16)
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, centerX, centerY, 0f)
+        Matrix.rotateM(model, 0, rotation, 0f, 0f, 1f)
+        Matrix.scaleM(model, 0, width / 2f, height / 2f, 1f)
+        Matrix.multiplyMM(mvp, 0, orthographicMatrix, 0, model, 0)
+        return mvp
+    }
+
     private fun calculateLockedPosition(
         index: Int,
         totalCount: Int,
@@ -595,7 +555,6 @@ class FloatDeckRenderer(
         if (!layoutSelected && portraitStates.isNotEmpty()) selectRandomLayout()
 
         val rows = currentLockLayout.rows
-        // 确定立绘在哪一行、哪一列
         var remaining = index
         var targetRow = 0
         var colInRow = 0
@@ -610,16 +569,11 @@ class FloatDeckRenderer(
 
         val totalRows = rows.size
         val colsInRow = rows[targetRow]
-
-        // 居中该行
         val rowWidth = (colsInRow - 1) * 0.1f
         val startX = 0.5f - rowWidth / 2f
-
         val xRatio = (startX + colInRow * 0.1f).coerceIn(0.05f, 0.95f)
         val yRatio =
-            (0.2f + targetRow * (0.6f / (totalRows - 1).coerceAtLeast(1)))
-                .coerceIn(0.1f, 0.9f)
-
+            (0.2f + targetRow * (0.6f / (totalRows - 1).coerceAtLeast(1))).coerceIn(0.1f, 0.9f)
         return Pair(xRatio, yRatio)
     }
 
@@ -633,29 +587,17 @@ class FloatDeckRenderer(
         return (yStart + sideIndex * yStep).coerceIn(0.1f, 0.9f)
     }
 
-    /**
-     * 计算立绘的晃动偏移（带随机元素，始终生效）。
-     * 只有上下浮动，没有水平偏移。
-     */
     private fun calculateSway(portraitIndex: Int): FloatArray {
         val seed = portraitIndex * 2654435761L
         val amplitudeVariation = ((seed and 0xFF) % 40 - 20) / 100f
         val frequencyVariation = ((seed shr 8 and 0xFF) % 30 - 15) / 100f
         val phaseOffset = (seed shr 16 and 0xFF) / 255f * 3.14f
-
-        val portraitHeight = screenHeightPixels * portraitHeightScreenFraction * 0.85f
-        val maxAmplitude = portraitHeight * 0.08f
-        val amplitude = maxAmplitude * (1f + amplitudeVariation)
+        val portraitHeight = screenHeightPixels * cardPortraitHeightScreenFraction * 0.85f
+        val amplitude = portraitHeight * 0.08f * (1f + amplitudeVariation)
         val frequency = 0.8f * (1f + frequencyVariation)
-
         val offsetY = sin(swayTimeSeconds * frequency + phaseOffset) * amplitude
-
         return floatArrayOf(0f, offsetY)
     }
-
-    // ==================================================================
-    // GL 辅助
-    // ==================================================================
 
     private fun bindQuadAttributes(buffer: FloatBuffer) {
         buffer.position(0)
@@ -679,22 +621,16 @@ class FloatDeckRenderer(
         if (backgroundProgram != 0) GLES30.glDeleteProgram(backgroundProgram)
     }
 
-    // ==================================================================
-    // 触控
-    // ==================================================================
-
     fun onTouchDown(
         touchX: Float,
         touchY: Float,
     ): Boolean {
+        if (templateLayout.isFullscreen) return false
+
         val sortedByZ = portraitStates.sortedByDescending { it.drawOrder }
         for (state in sortedByZ) {
             val bounds = getPortraitBounds(state)
-            if (touchX >= bounds[0] &&
-                touchX <= bounds[2] &&
-                touchY >= bounds[1] &&
-                touchY <= bounds[3]
-            ) {
+            if (touchX >= bounds[0] && touchX <= bounds[2] && touchY >= bounds[1] && touchY <= bounds[3]) {
                 draggedPortraitIndex = portraitStates.indexOf(state)
                 val maxOrder = portraitStates.maxOf { it.drawOrder }
                 state.drawOrder = maxOrder + 1
@@ -730,14 +666,12 @@ class FloatDeckRenderer(
         touchX: Float,
         touchY: Float,
     ): Boolean {
+        if (templateLayout.isFullscreen) return false
+
         val sortedByZ = portraitStates.sortedByDescending { it.drawOrder }
         for (state in sortedByZ) {
             val bounds = getPortraitBounds(state)
-            if (touchX >= bounds[0] &&
-                touchX <= bounds[2] &&
-                touchY >= bounds[1] &&
-                touchY <= bounds[3]
-            ) {
+            if (touchX >= bounds[0] && touchX <= bounds[2] && touchY >= bounds[1] && touchY <= bounds[3]) {
                 state.offsetX = 0f
                 state.offsetY = 0f
                 state.velocityX = 0f
@@ -748,21 +682,15 @@ class FloatDeckRenderer(
         return false
     }
 
-    /**
-     * 触发解锁动画（带 0.1 秒延迟）
-     */
     fun triggerUnlock() {
         isWaitingForUnlock = true
         unlockDelayTimer = 0f
     }
 
-    /**
-     * 触发锁屏（立即）
-     */
     fun triggerLock() {
         isWaitingForUnlock = false
         targetTransition = 1f
-        selectRandomLayout() // 重新随机布局
+        selectRandomLayout()
     }
 
     private fun getPortraitBounds(state: PortraitState): FloatArray {
@@ -772,22 +700,14 @@ class FloatDeckRenderer(
         val isOnLeftSide = globalIndex < leftSideCount
         val sideIndex = if (isOnLeftSide) globalIndex else globalIndex - leftSideCount
         val sideCount = if (isOnLeftSide) leftSideCount else totalCount - leftSideCount
-
-        val t = transitionProgress
-
         val (lockedX, lockedY) = calculateLockedPosition(globalIndex, totalCount)
-        val lockedScale = 0.85f
-
         val unlockedX = if (isOnLeftSide) 0.05f else 0.95f
         val unlockedY = calculateUnlockedY(sideIndex, sideCount)
-        val unlockedScale = 0.64f
-
-        val centerX = lerp(unlockedX, lockedX, t) * screenWidthPixels + state.offsetX
-        val centerY = lerp(unlockedY, lockedY, t) * screenHeightPixels + state.offsetY
-        val scale = lerp(unlockedScale, lockedScale, t)
-
-        val height = screenHeightPixels * portraitHeightScreenFraction * scale
-        val width = height * portraitAspectRatio
+        val centerX = lerp(unlockedX, lockedX, transitionProgress) * screenWidthPixels + state.offsetX
+        val centerY = lerp(unlockedY, lockedY, transitionProgress) * screenHeightPixels + state.offsetY
+        val scale = lerp(0.64f, 0.85f, transitionProgress)
+        val height = screenHeightPixels * cardPortraitHeightScreenFraction * scale
+        val width = height * cardPortraitAspectRatio
 
         return floatArrayOf(
             centerX - width / 2,
@@ -797,9 +717,19 @@ class FloatDeckRenderer(
         )
     }
 
+    private fun PortraitState.safeAspectRatio(): Float {
+        if (textureWidth <= 0 || textureHeight <= 0) return cardPortraitAspectRatio
+        return textureWidth.toFloat() / textureHeight.toFloat()
+    }
+
     private fun lerp(
         a: Float,
         b: Float,
         t: Float,
     ): Float = a + (b - a) * t.coerceIn(0f, 1f)
+
+    companion object {
+        private const val FRAME_TIME_SECONDS = 0.016f
+        private const val MAX_SENSOR_SHIFT = 0.5f
+    }
 }
