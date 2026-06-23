@@ -1,7 +1,6 @@
 package app.floatdeck.data
 
 import android.content.Context
-import app.floatdeck.R
 import org.json.JSONObject
 import java.io.File
 
@@ -23,6 +22,7 @@ data class TemplateDef(
     val wallpaper: String,
     val left: List<TemplateFile>,
     val right: List<TemplateFile>,
+    val layout: TemplateLayoutConfig = TemplateLayoutConfig(),
 )
 
 /**
@@ -38,30 +38,8 @@ object Templates {
     fun loadTemplateFromDir(dir: File): TemplateDef? =
         try {
             val jsonFile = File(dir, "template.json")
-            val jsonStr = jsonFile.readText()
-            val json = JSONObject(jsonStr)
-
-            val leftArr = json.getJSONObject("portraits").getJSONArray("left")
-            val rightArr = json.getJSONObject("portraits").getJSONArray("right")
-
-            val left =
-                (0 until leftArr.length()).map { i ->
-                    val obj = leftArr.getJSONObject(i)
-                    TemplateFile(obj.getString("file"), obj.getString("label"))
-                }
-            val right =
-                (0 until rightArr.length()).map { i ->
-                    val obj = rightArr.getJSONObject(i)
-                    TemplateFile(obj.getString("file"), obj.getString("label"))
-                }
-
-            TemplateDef(
-                id = json.getString("id"),
-                name = json.getString("name"),
-                wallpaper = json.getString("wallpaper"),
-                left = left,
-                right = right,
-            )
+            val json = JSONObject(jsonFile.readText())
+            parseTemplateDef(json)
         } catch (_: Exception) {
             null
         }
@@ -77,39 +55,13 @@ object Templates {
                     .open("$TEMPLATES_DIR/$templateId/template.json")
                     .bufferedReader()
                     .use { it.readText() }
-            val json = JSONObject(jsonStr)
-
-            // 解析左右两侧的肖像列表
-            val leftArr = json.getJSONObject("portraits").getJSONArray("left")
-            val rightArr = json.getJSONObject("portraits").getJSONArray("right")
-
-            val left =
-                (0 until leftArr.length()).map { i ->
-                    val obj = leftArr.getJSONObject(i)
-                    TemplateFile(obj.getString("file"), obj.getString("label"))
-                }
-            val right =
-                (0 until rightArr.length()).map { i ->
-                    val obj = rightArr.getJSONObject(i)
-                    TemplateFile(obj.getString("file"), obj.getString("label"))
-                }
-
-            TemplateDef(
-                id = json.getString("id"),
-                name = json.getString("name"),
-                wallpaper = json.getString("wallpaper"),
-                left = left,
-                right = right,
-            )
+            parseTemplateDef(JSONObject(jsonStr))
         } catch (_: Exception) {
             null
         }
 
     /**
-     * 将模板定义转换为渲染用的 TemplateConfig，计算每张肖像的布局位置。
-     *
-     * @param screenWidth Surface 宽度（像素）
-     * @param screenHeight Surface 高度（像素）
+     * 将模板定义转换为渲染用的 TemplateConfig，计算每张肖像在原卡片布局中的位置参数。
      */
     fun toTemplateConfig(
         context: Context,
@@ -140,12 +92,11 @@ object Templates {
             name = def.name,
             wallpaperAsset = "$TEMPLATES_DIR/${def.id}/${def.wallpaper}",
             portraits = portraits,
+            layout = def.layout,
         )
     }
 
-    /**
-     * 将远程模板定义转换为渲染用的 TemplateConfig（使用文件路径而非 assets 路径）。
-     */
+    /** 将远程模板定义转换为渲染用的 TemplateConfig（使用文件路径而非 assets 路径）。 */
     fun toTemplateConfigFromDir(
         def: TemplateDef,
         templateDir: File,
@@ -177,8 +128,62 @@ object Templates {
             wallpaperAsset = File(templateDir, def.wallpaper).absolutePath,
             portraits = portraits,
             isRemote = true,
+            layout = def.layout,
         )
     }
+
+    private fun parseTemplateDef(json: JSONObject): TemplateDef {
+        val portraits = json.getJSONObject("portraits")
+        val left = parseFiles(portraits, "left")
+        val right = parseFiles(portraits, "right")
+
+        return TemplateDef(
+            id = json.getString("id"),
+            name = json.getString("name"),
+            wallpaper = json.getString("wallpaper"),
+            left = left,
+            right = right,
+            layout = parseLayout(json.optJSONObject("layout")),
+        )
+    }
+
+    private fun parseFiles(
+        portraits: JSONObject,
+        side: String,
+    ): List<TemplateFile> {
+        val arr = portraits.getJSONArray(side)
+        return (0 until arr.length()).map { i ->
+            val obj = arr.getJSONObject(i)
+            TemplateFile(obj.getString("file"), obj.getString("label"))
+        }
+    }
+
+    private fun parseLayout(json: JSONObject?): TemplateLayoutConfig {
+        if (json == null) return TemplateLayoutConfig()
+        return TemplateLayoutConfig(
+            mode = json.optString("mode", "cards"),
+            centerX = json.optFloat("centerX", 0.5f),
+            centerY = json.optFloat("centerY", 0.5f),
+            lockedCenterX = json.optFloat("lockedCenterX", json.optFloat("centerX", 0.5f)),
+            lockedCenterY = json.optFloat("lockedCenterY", json.optFloat("centerY", 0.5f)),
+            portraitHeight = json.optFloat("portraitHeight", 1.16f),
+            lockedPortraitHeight = json.optFloat("lockedPortraitHeight", json.optFloat("portraitHeight", 1.16f)),
+            rotation = json.optFloat("rotation", 0f),
+            lockedRotation = json.optFloat("lockedRotation", json.optFloat("rotation", 0f)),
+            crossfadeRange = json.optFloat("crossfadeRange", 0.22f),
+            tiltAxis = json.optString("tiltAxis", "roll"),
+            invertTilt = json.optBoolean("invertTilt", false),
+            backgroundParallaxX = json.optFloat("backgroundParallaxX", 0.08f),
+            backgroundParallaxY = json.optFloat("backgroundParallaxY", 0.05f),
+            portraitParallaxX = json.optFloat("portraitParallaxX", 0.13f),
+            portraitParallaxY = json.optFloat("portraitParallaxY", 0.08f),
+        )
+    }
+
+    private fun JSONObject.optFloat(
+        name: String,
+        fallback: Float,
+    ): Float = optDouble(name, fallback.toDouble()).toFloat()
 
     /**
      * 计算锁屏状态下的肖像位置：居中网格排列，带随机旋转。
@@ -193,7 +198,6 @@ object Templates {
         val row = i / cols
         val col = i % cols
         val rows = (total + cols - 1) / cols
-        // 最后一行可能不满，计算实际列数以居中
         val colsInRow = (total - row * cols).coerceAtMost(cols)
         val rowWidth = (colsInRow - 1) * 0.1f
         val startX = 0.5f - rowWidth / 2f
@@ -202,18 +206,14 @@ object Templates {
         return PortraitPosition(
             xRatio = (startX + col * 0.1f).coerceIn(0.05f, 0.95f),
             yRatio = centerY.coerceIn(0.1f, 0.9f),
-            rotation = (i - total / 2) * 2.5f, // 以中心为对称的旋转角度
+            rotation = (i - total / 2) * 2.5f,
             scale = 0.85f,
-            tiltOffset = 0.6f + (i % 5) * 0.12f, // 交错视差灵敏度
+            tiltOffset = 0.6f + (i % 5) * 0.12f,
         )
     }
 
     /**
      * 计算解锁状态下的肖像位置：分散到屏幕左右两侧，竖向均匀排列。
-     *
-     * @param isLeft 是否属于左侧组
-     * @param sideIndex 在该侧的索引
-     * @param sideCount 该侧总数
      */
     private fun unlockedPosition(
         isLeft: Boolean,
@@ -229,7 +229,6 @@ object Templates {
         return PortraitPosition(
             xRatio = x,
             yRatio = y.coerceIn(0.1f, 0.9f),
-            // 左侧微左倾，右侧微右倾
             rotation = if (isLeft) -6f + sideIndex * 1.5f else 6f - sideIndex * 1.5f,
             scale = 0.4f,
             tiltOffset = 0.2f,
