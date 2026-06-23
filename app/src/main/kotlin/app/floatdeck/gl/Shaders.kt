@@ -2,7 +2,7 @@ package app.floatdeck.gl
 
 /** GLSL 着色器源码：肖像卡片（portrait）和背景各一组顶点/片段着色器。 */
 object Shaders {
-    /** 肖像卡片顶点着色器：处理旋转、缩放、偏移和视差效果。 */
+    /**肖像卡片顶点着色器：处理旋转、缩放、偏移和视差效果。 */
     val portraitVertex =
         """
         #version 300 es
@@ -144,6 +144,13 @@ object Shaders {
             float mask = 1.0 - smoothstep(-edgeSoftness, edgeSoftness, dist);
 
             vec4 texColor = texture(uTexture, vUV);
+            float textureAlpha = texColor.a * mask;
+
+            // Honor PNG transparency. The previous shader ignored texColor.a,
+            // so transparent cutouts were rendered as opaque black/checker rectangles.
+            if (textureAlpha <= 0.001 && uShadowColor.a <= 0.001) {
+                discard;
+            }
 
             // 应用立绘特效
             vec3 finalColor = texColor.rgb;
@@ -157,12 +164,17 @@ object Shaders {
             vec2 shadowLocalPos = vLocalPos - uShadowOffset;
             float shadowDist = roundedBoxSDF(shadowLocalPos, vec2(1.0), uRadius);
             float shadowMask = 1.0 - smoothstep(-0.05, 0.1, shadowDist);
+            float shadowAlpha = shadowMask * uShadowColor.a * textureAlpha;
 
-            vec3 shadow = uShadowColor.rgb * shadowMask * uShadowColor.a;
-            vec3 color = mix(shadow, finalColor, mask);
+            float finalAlpha = max(textureAlpha, shadowAlpha) * uAlpha;
+            if (finalAlpha <= 0.001) {
+                discard;
+            }
 
-            // 最终输出：卡片遮罩 + 阴影遮罩，乘以整体透明度
-            fragColor = vec4(color, (mask + shadowMask * uShadowColor.a) * uAlpha);
+            vec3 shadow = uShadowColor.rgb;
+            vec3 color = mix(shadow, finalColor, textureAlpha / max(finalAlpha / max(uAlpha, 0.001), 0.001));
+
+            fragColor = vec4(color, finalAlpha);
         }
         """.trimIndent()
 
