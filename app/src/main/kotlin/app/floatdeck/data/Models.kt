@@ -22,6 +22,10 @@ enum class PortraitEffect(
  *
  * mode = "cards" preserves the original FloatDeck card layout.
  * mode = "fullscreen" draws portraits as large layers and crossfades them by phone tilt.
+ *
+ * tiltMode:
+ * - "axis" keeps the old roll/pitch crossfade.
+ * - "hybrid" uses roll/pitch while the phone is upright and relative yaw while the phone is flat.
  */
 data class TemplateLayoutConfig(
     val mode: String = "cards",
@@ -35,6 +39,11 @@ data class TemplateLayoutConfig(
     val lockedRotation: Float = 0f,
     val crossfadeRange: Float = 0.22f,
     val tiltAxis: String = "roll",
+    val tiltMode: String = "axis",
+    val yawRange: Float = 0.65f,
+    val flatnessStart: Float = 0.45f,
+    val flatnessEnd: Float = 0.75f,
+    val recenterOnScreenOn: Boolean = true,
     val invertTilt: Boolean = false,
     val backgroundParallaxX: Float = 0.08f,
     val backgroundParallaxY: Float = 0.05f,
