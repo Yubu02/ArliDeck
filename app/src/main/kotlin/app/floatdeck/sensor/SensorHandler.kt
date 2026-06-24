@@ -5,13 +5,17 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * 设备姿态传感器监听器。
+ * Device posture sensor listener.
  *
- * 优先使用旋转矢量传感器（TYPE_ROTATION_VECTOR），回退到游戏旋转矢量，
- * 最后回退到加速度计。输出 rollX（左右倾斜）和 pitchY（前后倾斜）归一化值。
+ * Outputs:
+ * - rollX: left/right tilt.
+ * - pitchY: front/back tilt.
+ * - yawZ: rotation around the phone's vertical axis, used as a relative flat-mode fallback.
+ * - flatness: 0 when upright-ish, 1 when the phone is lying flat face-up/face-down.
  */
 class SensorHandler(
     private val context: Context,
@@ -34,26 +38,34 @@ class SensorHandler(
     var pitchY = 0f
         private set
 
+    /** 水平旋转值（yaw / azimuth），弧度制，约 -PI ~ PI */
+    var yawZ = 0f
+        private set
+
+    /** 设备是否接近平放：0=竖/斜持，1=屏幕朝上/朝下接近平放 */
+    var flatness = 0f
+        private set
+
     private val sensorManager by lazy {
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     }
 
     private var registered = false
 
-    /** 注册传感器监听，按优先级依次尝试旋转矢量 → 游戏旋转矢量 → 加速度计。 */
+    /** 注册传感器监听。优先游戏旋转矢量，因为它的相对 yaw 更适合壁纸视差。 */
     fun register() {
         if (registered) return
-
-        val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        if (rotationVector != null) {
-            sensorManager.registerListener(this, rotationVector, SensorManager.SENSOR_DELAY_UI)
-            registered = true
-            return
-        }
 
         val gameRotation = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
         if (gameRotation != null) {
             sensorManager.registerListener(this, gameRotation, SensorManager.SENSOR_DELAY_UI)
+            registered = true
+            return
+        }
+
+        val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationVector != null) {
+            sensorManager.registerListener(this, rotationVector, SensorManager.SENSOR_DELAY_UI)
             registered = true
             return
         }
@@ -75,7 +87,6 @@ class SensorHandler(
 
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
-            // 旋转矢量 / 游戏旋转矢量：通过旋转矩阵 → 欧拉角提取 roll 和 pitch
             Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                 val rotationMatrix = FloatArray(9)
                 SensorManager.getRotationMatrixFromVector(
@@ -84,16 +95,21 @@ class SensorHandler(
                 )
                 val orientation = FloatArray(3)
                 SensorManager.getOrientation(rotationMatrix, orientation)
-                rollX = orientation[2] // 弧度制 roll
-                pitchY = orientation[1] // 弧度制 pitch
+                yawZ = orientation[0]
+                rollX = orientation[2]
+                pitchY = orientation[1]
+
+                // Matrix index 8 describes how much the phone Z axis points along world Z.
+                // Its absolute value is close to 1 when the phone is lying flat, including face-down.
+                flatness = abs(rotationMatrix[8]).coerceIn(0f, 1f)
             }
-            // 加速度计回退：用重力方向归一化估算倾斜
             Sensor.TYPE_ACCELEROMETER -> {
                 val g = event.values
                 val norm = sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2])
                 if (norm > 0.1f) {
                     rollX = g[0] / norm
                     pitchY = g[1] / norm
+                    flatness = abs(g[2] / norm).coerceIn(0f, 1f)
                 }
             }
         }
