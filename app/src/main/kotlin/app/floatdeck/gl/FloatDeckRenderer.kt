@@ -8,6 +8,7 @@ import android.opengl.Matrix
 import app.floatdeck.data.TemplateConfig
 import app.floatdeck.data.TemplateLayoutConfig
 import java.nio.FloatBuffer
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
@@ -71,6 +72,12 @@ class FloatDeckRenderer(
 
     var smoothedRollX = 0f
     var smoothedPitchY = 0f
+    var smoothedYawZ = 0f
+    var smoothedFlatness = 0f
+
+    private var yawCenter = 0f
+    private var axisCenter = 0f
+    private var needsOrientationRecenter = true
 
     var transitionProgress = 0f
     var targetTransition = 0f
@@ -192,6 +199,7 @@ class FloatDeckRenderer(
         portraitStates.clear()
         if (wallpaperTextureId != 0) TextureLoader.deleteTexture(wallpaperTextureId)
         templateLayout = template.layout
+        requestOrientationRecenter()
 
         val bgResult =
             if (template.isRemote && template.wallpaperAsset != null) {
@@ -288,6 +296,10 @@ class FloatDeckRenderer(
         if (isFirstFrame) {
             transitionProgress = targetTransition
             isFirstFrame = false
+        }
+
+        if (needsOrientationRecenter) {
+            recenterOrientation()
         }
 
         if (isWaitingForUnlock) {
@@ -429,16 +441,53 @@ class FloatDeckRenderer(
     private fun fullscreenAlphaPair(): Pair<Float, Float> {
         if (portraitStates.size < 2) return Pair(1f, 0f)
 
-        val axisValue =
-            if (templateLayout.tiltAxis.equals("pitch", ignoreCase = true)) {
-                smoothedPitchY
+        val normalizedTilt =
+            if (templateLayout.tiltMode.equals("hybrid", ignoreCase = true)) {
+                hybridNormalizedTilt()
             } else {
-                smoothedRollX
+                axisNormalizedTilt()
             }
-        val tilt = if (templateLayout.invertTilt) -axisValue else axisValue
-        val range = templateLayout.crossfadeRange.coerceAtLeast(0.01f)
-        val rightAlpha = ((tilt + range) / (range * 2f)).coerceIn(0f, 1f)
+        val finalTilt = if (templateLayout.invertTilt) -normalizedTilt else normalizedTilt
+        val rightAlpha = ((finalTilt + 1f) / 2f).coerceIn(0f, 1f)
         return Pair(1f - rightAlpha, rightAlpha)
+    }
+
+    private fun axisNormalizedTilt(): Float {
+        val axisValue = currentAxisValue()
+        val range = templateLayout.crossfadeRange.coerceAtLeast(0.01f)
+        return (axisValue / range).coerceIn(-1f, 1f)
+    }
+
+    private fun hybridNormalizedTilt(): Float {
+        val axisRange = templateLayout.crossfadeRange.coerceAtLeast(0.01f)
+        val yawRange = templateLayout.yawRange.coerceAtLeast(0.01f)
+        val axisDelta = currentAxisValue() - axisCenter
+        val yawDelta = angleDelta(smoothedYawZ, yawCenter)
+        val axisTilt = (axisDelta / axisRange).coerceIn(-1f, 1f)
+        val yawTilt = (yawDelta / yawRange).coerceIn(-1f, 1f)
+        val flatBlend = smoothStep(
+            templateLayout.flatnessStart,
+            templateLayout.flatnessEnd,
+            smoothedFlatness,
+        )
+        return lerp(axisTilt, yawTilt, flatBlend).coerceIn(-1f, 1f)
+    }
+
+    private fun currentAxisValue(): Float =
+        if (templateLayout.tiltAxis.equals("pitch", ignoreCase = true)) {
+            smoothedPitchY
+        } else {
+            smoothedRollX
+        }
+
+    fun requestOrientationRecenter() {
+        needsOrientationRecenter = true
+    }
+
+    private fun recenterOrientation() {
+        axisCenter = currentAxisValue()
+        yawCenter = smoothedYawZ
+        needsOrientationRecenter = false
     }
 
     private fun drawCardPortraits() {
@@ -685,12 +734,18 @@ class FloatDeckRenderer(
     fun triggerUnlock() {
         isWaitingForUnlock = true
         unlockDelayTimer = 0f
+        if (templateLayout.recenterOnScreenOn) {
+            requestOrientationRecenter()
+        }
     }
 
     fun triggerLock() {
         isWaitingForUnlock = false
         targetTransition = 1f
         selectRandomLayout()
+        if (templateLayout.recenterOnScreenOn) {
+            requestOrientationRecenter()
+        }
     }
 
     private fun getPortraitBounds(state: PortraitState): FloatArray {
@@ -722,6 +777,26 @@ class FloatDeckRenderer(
         return textureWidth.toFloat() / textureHeight.toFloat()
     }
 
+    private fun angleDelta(
+        value: Float,
+        center: Float,
+    ): Float {
+        var delta = value - center
+        while (delta > PI_FLOAT) delta -= TWO_PI_FLOAT
+        while (delta < -PI_FLOAT) delta += TWO_PI_FLOAT
+        return delta
+    }
+
+    private fun smoothStep(
+        edge0: Float,
+        edge1: Float,
+        value: Float,
+    ): Float {
+        val width = (edge1 - edge0).coerceAtLeast(0.001f)
+        val t = ((value - edge0) / width).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
     private fun lerp(
         a: Float,
         b: Float,
@@ -731,5 +806,7 @@ class FloatDeckRenderer(
     companion object {
         private const val FRAME_TIME_SECONDS = 0.016f
         private const val MAX_SENSOR_SHIFT = 0.5f
+        private val PI_FLOAT = PI.toFloat()
+        private val TWO_PI_FLOAT = (PI * 2.0).toFloat()
     }
 }
