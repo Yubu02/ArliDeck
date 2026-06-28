@@ -234,8 +234,8 @@ class GLWallpaperThread(
                     (sensorHandler.rollX - renderer.smoothedRollX) * 0.08f
                 renderer.smoothedPitchY +=
                     (sensorHandler.pitchY - renderer.smoothedPitchY) * 0.08f
-                // Yaw is angular and can wrap around +/-PI, so the renderer handles relative wrapping.
                 renderer.smoothedYawZ = sensorHandler.yawZ
+                renderer.smoothedTwistZ = sensorHandler.twistZ
                 renderer.smoothedFlatness +=
                     (sensorHandler.flatness - renderer.smoothedFlatness) * 0.08f
 
