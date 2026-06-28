@@ -73,9 +73,11 @@ class FloatDeckRenderer(
     var smoothedRollX = 0f
     var smoothedPitchY = 0f
     var smoothedYawZ = 0f
+    var smoothedTwistZ = 0f
     var smoothedFlatness = 0f
 
     private var yawCenter = 0f
+    private var twistCenter = 0f
     private var axisCenter = 0f
     private var needsOrientationRecenter = true
 
@@ -344,7 +346,13 @@ class FloatDeckRenderer(
     }
 
     private fun drawBackgroundLayers() {
-        val clampedRoll = smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT)
+        val flatBlend = hybridFlatBlend()
+        val flatX = flatTwistForParallax()
+        val clampedRoll = lerp(
+            smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT),
+            flatX,
+            flatBlend,
+        )
         val clampedPitch = smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT)
         val parallaxX = clampedRoll * screenWidthPixels * templateLayout.backgroundParallaxX
         val parallaxY = clampedPitch * screenHeightPixels * templateLayout.backgroundParallaxY
@@ -409,8 +417,14 @@ class FloatDeckRenderer(
         val heightRatio = lerp(templateLayout.portraitHeight, templateLayout.lockedPortraitHeight, transitionProgress)
         val rotation = lerp(templateLayout.rotation, templateLayout.lockedRotation, transitionProgress)
 
-        val parallaxX = smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) *
-            screenWidthPixels * templateLayout.portraitParallaxX
+        val flatBlend = hybridFlatBlend()
+        val flatX = flatTwistForParallax()
+        val parallaxInputX = lerp(
+            smoothedRollX.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT),
+            flatX,
+            flatBlend,
+        )
+        val parallaxX = parallaxInputX * screenWidthPixels * templateLayout.portraitParallaxX
         val parallaxY = smoothedPitchY.coerceIn(-MAX_SENSOR_SHIFT, MAX_SENSOR_SHIFT) *
             screenHeightPixels * templateLayout.portraitParallaxY
         val centerX = centerRatioX * screenWidthPixels + parallaxX
@@ -462,15 +476,10 @@ class FloatDeckRenderer(
         val axisRange = templateLayout.crossfadeRange.coerceAtLeast(0.01f)
         val yawRange = templateLayout.yawRange.coerceAtLeast(0.01f)
         val axisDelta = currentAxisValue() - axisCenter
-        val yawDelta = angleDelta(smoothedYawZ, yawCenter)
+        val twistDelta = localTwistDelta()
         val axisTilt = (axisDelta / axisRange).coerceIn(-1f, 1f)
-        val yawTilt = (yawDelta / yawRange).coerceIn(-1f, 1f)
-        val flatBlend = smoothStep(
-            templateLayout.flatnessStart,
-            templateLayout.flatnessEnd,
-            smoothedFlatness,
-        )
-        return lerp(axisTilt, yawTilt, flatBlend).coerceIn(-1f, 1f)
+        val twistTilt = (twistDelta / yawRange).coerceIn(-1f, 1f)
+        return lerp(axisTilt, twistTilt, hybridFlatBlend()).coerceIn(-1f, 1f)
     }
 
     private fun currentAxisValue(): Float =
@@ -480,6 +489,32 @@ class FloatDeckRenderer(
             smoothedRollX
         }
 
+    private fun hybridFlatBlend(): Float {
+        if (!templateLayout.tiltMode.equals("hybrid", ignoreCase = true)) return 0f
+        return smoothStep(
+            templateLayout.flatnessStart,
+            templateLayout.flatnessEnd,
+            smoothedFlatness,
+        )
+    }
+
+    private fun localTwistDelta(): Float {
+        val twistDelta = smoothedTwistZ - twistCenter
+        return if (abs(twistDelta) > 0.0005f) {
+            twistDelta
+        } else {
+            angleDelta(smoothedYawZ, yawCenter)
+        }
+    }
+
+    private fun flatTwistForParallax(): Float {
+        val yawRange = templateLayout.yawRange.coerceAtLeast(0.01f)
+        return ((localTwistDelta() / yawRange) * MAX_SENSOR_SHIFT).coerceIn(
+            -MAX_SENSOR_SHIFT,
+            MAX_SENSOR_SHIFT,
+        )
+    }
+
     fun requestOrientationRecenter() {
         needsOrientationRecenter = true
     }
@@ -487,6 +522,7 @@ class FloatDeckRenderer(
     private fun recenterOrientation() {
         axisCenter = currentAxisValue()
         yawCenter = smoothedYawZ
+        twistCenter = smoothedTwistZ
         needsOrientationRecenter = false
     }
 
