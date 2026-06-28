@@ -14,7 +14,8 @@ import kotlin.math.sqrt
  * Outputs:
  * - rollX: left/right tilt.
  * - pitchY: front/back tilt.
- * - yawZ: rotation around the phone's vertical axis, used as a relative flat-mode fallback.
+ * - yawZ: azimuth-like heading from Android orientation.
+ * - twistZ: accumulated local screen-plane twist from frame-to-frame rotation changes.
  * - flatness: 0 when upright-ish, 1 when the phone is lying flat face-up/face-down.
  */
 class SensorHandler(
@@ -42,6 +43,10 @@ class SensorHandler(
     var yawZ = 0f
         private set
 
+    /** 累积的屏幕平面旋转量，适合平躺时检测手机绕屏幕法线旋转。 */
+    var twistZ = 0f
+        private set
+
     /** 设备是否接近平放：0=竖/斜持，1=屏幕朝上/朝下接近平放 */
     var flatness = 0f
         private set
@@ -51,6 +56,10 @@ class SensorHandler(
     }
 
     private var registered = false
+    private val currentRotationMatrix = FloatArray(9)
+    private val previousRotationMatrix = FloatArray(9)
+    private val angleChange = FloatArray(3)
+    private var hasPreviousRotationMatrix = false
 
     /** 注册传感器监听。优先游戏旋转矢量，因为它的相对 yaw 更适合壁纸视差。 */
     fun register() {
@@ -83,25 +92,37 @@ class SensorHandler(
         if (!registered) return
         sensorManager.unregisterListener(this)
         registered = false
+        hasPreviousRotationMatrix = false
     }
 
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR -> {
-                val rotationMatrix = FloatArray(9)
                 SensorManager.getRotationMatrixFromVector(
-                    rotationMatrix,
+                    currentRotationMatrix,
                     safeRotationValues(event.values),
                 )
+
+                if (hasPreviousRotationMatrix) {
+                    SensorManager.getAngleChange(
+                        angleChange,
+                        currentRotationMatrix,
+                        previousRotationMatrix,
+                    )
+                    twistZ += angleChange[2]
+                }
+                currentRotationMatrix.copyInto(previousRotationMatrix)
+                hasPreviousRotationMatrix = true
+
                 val orientation = FloatArray(3)
-                SensorManager.getOrientation(rotationMatrix, orientation)
+                SensorManager.getOrientation(currentRotationMatrix, orientation)
                 yawZ = orientation[0]
                 rollX = orientation[2]
                 pitchY = orientation[1]
 
                 // Matrix index 8 describes how much the phone Z axis points along world Z.
                 // Its absolute value is close to 1 when the phone is lying flat, including face-down.
-                flatness = abs(rotationMatrix[8]).coerceIn(0f, 1f)
+                flatness = abs(currentRotationMatrix[8]).coerceIn(0f, 1f)
             }
             Sensor.TYPE_ACCELEROMETER -> {
                 val g = event.values
